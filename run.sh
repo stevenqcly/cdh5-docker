@@ -5,7 +5,7 @@ IMAGE="ghcr.io/stevenqcly/cloudera-cdh5:cdh5"
 NAME="cdh5"
 
 echo "[1/4] Pulling image: $IMAGE"
-docker pull "$IMAGE"
+docker pull --platform linux/amd64 "$IMAGE"
 
 echo "[2/4] Removing existing container (if any): $NAME"
 docker rm -f "$NAME" >/dev/null 2>&1 || true
