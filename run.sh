@@ -14,7 +14,6 @@ echo "[3/4] Starting container: $NAME"
 docker run -d \
   --name "$NAME" \
   --platform linux/amd64 \
-  --hostname quickstart.cloudera \
   --privileged \
   --tmpfs /run --tmpfs /tmp \
   -p 8888:8888 \
