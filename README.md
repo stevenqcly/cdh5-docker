@@ -71,7 +71,18 @@ Once running, access services at:
 
 Stop the container:
 ```bash
-docker stop cdh5
+service impala-server stop
+service impala-catalog stop
+service impala-state-store stop
+
+service oozie stop
+service hue stop
+
+service hadoop-yarn-resourcemanager stop
+service hadoop-yarn-nodemanager stop
+
+service hadoop-hdfs-datanode stop
+service hadoop-hdfs-namenode stop
 ```
 
 ---
