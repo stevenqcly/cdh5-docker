@@ -69,7 +69,7 @@ Once running, access services at:
 
 ## Container management
 
-Stop the container:
+Stop the container (Please ensure to run this in the container terminal upon every shutdown to prevent namenode/datanode corruption):
 ```bash
 service impala-server stop
 service impala-catalog stop
