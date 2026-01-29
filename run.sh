@@ -2,7 +2,7 @@
 set -euo pipefail
 
 IMAGE="ghcr.io/stevenqcly/cloudera-cdh5:cdh5-v2"
-NAME="cdh5"
+NAME="cdh5-v2"
 
 echo "[1/4] Pulling image: $IMAGE"
 docker pull --platform linux/amd64 "$IMAGE"
