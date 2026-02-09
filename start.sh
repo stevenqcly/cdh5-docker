@@ -12,6 +12,51 @@ if command -v ifconfig >/dev/null 2>&1; then
   ifconfig lo up || true
 fi
 
+# ------------------------------------------------------------------------------
+# PERMANENT Spark driver fix for CDH5-in-Docker:
+# - Ensure spark-shell/pyspark read the right conf
+# - Avoid /tmp for JNI libs (snappy) & spark scratch space
+# - Optionally avoid snappy entirely by forcing lzf
+# ------------------------------------------------------------------------------
+mkdir -p /var/tmp/java /var/tmp/spark || true
+chmod 1777 /var/tmp/java /var/tmp/spark || true
+
+# Make Spark pick up the correct defaults without users exporting SPARK_CONF_DIR
+cat >/etc/profile.d/spark_cdh5_docker.sh <<'EOF'
+# Force Spark to use the CDH config directory
+export SPARK_CONF_DIR=/etc/spark/conf
+
+# Avoid /tmp for JVM-native lib extraction (snappy) in containers
+export _JAVA_OPTIONS="-Djava.io.tmpdir=/var/tmp/java"
+export JAVA_TOOL_OPTIONS="-Djava.io.tmpdir=/var/tmp/java"
+
+# Avoid /tmp for Spark local scratch
+export SPARK_LOCAL_DIRS="/var/tmp/spark"
+EOF
+chmod 644 /etc/profile.d/spark_cdh5_docker.sh || true
+
+# Also export for THIS start.sh process (so services and non-login shells benefit)
+export SPARK_CONF_DIR=/etc/spark/conf
+export _JAVA_OPTIONS="-Djava.io.tmpdir=/var/tmp/java"
+export JAVA_TOOL_OPTIONS="-Djava.io.tmpdir=/var/tmp/java"
+export SPARK_LOCAL_DIRS="/var/tmp/spark"
+
+# Ensure Spark defaults include driver tmpdir + local dirs (+ optional codec)
+# (Idempotent: only appends if missing)
+SPARK_DEFAULTS="/etc/spark/conf/spark-defaults.conf"
+touch "$SPARK_DEFAULTS" || true
+
+grep -q '^spark\.driver\.extraJavaOptions' "$SPARK_DEFAULTS" 2>/dev/null || \
+  echo "spark.driver.extraJavaOptions -Djava.io.tmpdir=/var/tmp/java" >> "$SPARK_DEFAULTS"
+
+grep -q '^spark\.local\.dir' "$SPARK_DEFAULTS" 2>/dev/null || \
+  echo "spark.local.dir /var/tmp/spark" >> "$SPARK_DEFAULTS"
+
+# Highly recommended in your environment: never try snappy
+# (prevents SnappyCompressionCodec from ever loading JNI)
+grep -q '^spark\.io\.compression\.codec' "$SPARK_DEFAULTS" 2>/dev/null || \
+  echo "spark.io.compression.codec lzf" >> "$SPARK_DEFAULTS"
+
 # ---------- Environment (critical in containerized CDH5) ----------
 export JAVA_HOME="${JAVA_HOME:-/usr/java/jdk1.7.0_67}"
 export HADOOP_HOME="${HADOOP_HOME:-/usr/lib/hadoop}"
