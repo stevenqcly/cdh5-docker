@@ -1,14 +1,26 @@
 <?xml version="1.0"?>
+<!--
+  Licensed to the Apache Software Foundation (ASF) under one or more
+  contributor license agreements.  See the NOTICE file distributed with
+  this work for additional information regarding copyright ownership.
+  The ASF licenses this file to You under the Apache License, Version 2.0
+  (the "License"); you may not use this file except in compliance with
+  the License.  You may obtain a copy of the License at
+
+      http://www.apache.org/licenses/LICENSE-2.0
+
+  Unless required by applicable law or agreed to in writing, software
+  distributed under the License is distributed on an "AS IS" BASIS,
+  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  See the License for the specific language governing permissions and
+  limitations under the License.
+-->
 <?xml-stylesheet type="text/xsl" href="configuration.xsl"?>
 
 <configuration>
-
-  <!-- =========================
-       NodeManager aux services
-       ========================= -->
   <property>
     <name>yarn.nodemanager.aux-services</name>
-    <value>mapreduce_shuffle,spark_shuffle</value>
+    <value>mapreduce_shuffle</value>
   </property>
 
   <property>
@@ -16,149 +28,71 @@
     <value>org.apache.hadoop.mapred.ShuffleHandler</value>
   </property>
 
-  <!-- Spark-on-YARN external shuffle service (Spark 1.x on CDH5) -->
-  <property>
-    <name>yarn.nodemanager.aux-services.spark_shuffle.class</name>
-    <value>org.apache.spark.network.yarn.YarnShuffleService</value>
-  </property>
-
-  <!-- =========================
-       Log aggregation (to HDFS)
-       ========================= -->
   <property>
     <name>yarn.log-aggregation-enable</name>
     <value>true</value>
   </property>
 
-  <!-- HDFS base dir for aggregated logs -->
-  <property>
-    <name>yarn.nodemanager.remote-app-log-dir</name>
-    <value>/tmp/logs</value>
-  </property>
-
-  <property>
-    <name>yarn.nodemanager.remote-app-log-dir-suffix</name>
-    <value>logs</value>
-  </property>
-
-  <!-- =========================
-       Container-local dirs
-       ========================= -->
-  <property>
-    <description>List of directories to store localized files in.</description>
-    <name>yarn.nodemanager.local-dirs</name>
-    <value>/var/lib/hadoop-yarn/cache/yarn/nm-local-dir</value>
-  </property>
-
-  <property>
-    <description>Where to store container logs locally (NM writes here before/without aggregation).</description>
-    <name>yarn.nodemanager.log-dirs</name>
-    <value>/var/log/hadoop-yarn/userlogs</value>
-  </property>
-
-  <!-- =========================
-       Safety / stability
-       ========================= -->
   <property>
     <name>yarn.dispatcher.exit-on-error</name>
     <value>true</value>
   </property>
 
-  <!-- Keep the container small & predictable -->
+  <property>
+    <description>List of directories to store localized files in.</description>
+    <name>yarn.nodemanager.local-dirs</name>
+    <value>/var/lib/hadoop-yarn/cache/${user.name}/nm-local-dir</value>
+  </property>
+
+  <property>
+    <description>Where to store container logs.</description>
+    <name>yarn.nodemanager.log-dirs</name>
+    <value>/var/log/hadoop-yarn/containers</value>
+  </property>
+
+  <property>
+    <description>Where to aggregate logs to.</description>
+    <name>yarn.nodemanager.remote-app-log-dir</name>
+    <value>/var/log/hadoop-yarn/apps</value>
+  </property>
+
+  <property>
+    <description>Classpath for typical applications.</description>
+     <name>yarn.application.classpath</name>
+     <value>
+        $HADOOP_CONF_DIR,
+        $HADOOP_COMMON_HOME/*,$HADOOP_COMMON_HOME/lib/*,
+        $HADOOP_HDFS_HOME/*,$HADOOP_HDFS_HOME/lib/*,
+        $HADOOP_MAPRED_HOME/*,$HADOOP_MAPRED_HOME/lib/*,
+        $HADOOP_YARN_HOME/*,$HADOOP_YARN_HOME/lib/*
+     </value>
+  </property>
+
+
   <property>
     <name>yarn.nodemanager.resource.memory-mb</name>
     <value>4096</value>
   </property>
 
+  <!-- TBD Settings for YARN for performance on training VM 
+        These need testing and refinement! -->
+  
   <property>
     <name>yarn.scheduler.minimum-allocation-mb</name>
     <value>256</value>
   </property>
-
+   <property>
+     <name>yarn.scheduler.maximum-allocation-mb</name>
+	<value>2048</value>
+	</property>
+<!-- 
   <property>
-    <name>yarn.scheduler.maximum-allocation-mb</name>
-    <value>4096</value>
+    <name>yarn.nodemanager.resource.cpu-vcores</name>
+    <value>2</value>
   </property>
-
-  <!-- Docker / container safety: disable memory checks -->
   <property>
-    <name>yarn.nodemanager.vmem-check-enabled</name>
-    <value>false</value>
+    <name>yarn.scheduler.maximum-allocation-vcores </name>
+    <value>2</value>
   </property>
-
-  <property>
-    <name>yarn.nodemanager.pmem-check-enabled</name>
-    <value>false</value>
-  </property>
-
-  <!-- =========================
-       Bind / web UI addresses
-       ========================= -->
-  <property>
-    <name>yarn.resourcemanager.bind-host</name>
-    <value>0.0.0.0</value>
-  </property>
-
-  <property>
-    <name>yarn.nodemanager.bind-host</name>
-    <value>0.0.0.0</value>
-  </property>
-
-  <property>
-    <name>yarn.resourcemanager.webapp.address</name>
-    <value>0.0.0.0:8088</value>
-  </property>
-
-  <property>
-    <name>yarn.nodemanager.webapp.address</name>
-    <value>0.0.0.0:8042</value>
-  </property>
-
-  <!-- Stable connect hostname (single-container YARN) -->
-  <property>
-    <name>yarn.resourcemanager.hostname</name>
-    <value>localhost</value>
-  </property>
-
-  <property>
-    <name>yarn.nodemanager.hostname</name>
-    <value>localhost</value>
-  </property>
-
-  <!-- Force RM RPC endpoints to a stable connect address -->
-  <property>
-    <name>yarn.resourcemanager.address</name>
-    <value>localhost:8032</value>
-  </property>
-
-  <property>
-    <name>yarn.resourcemanager.scheduler.address</name>
-    <value>localhost:8030</value>
-  </property>
-
-  <property>
-    <name>yarn.resourcemanager.resource-tracker.address</name>
-    <value>localhost:8031</value>
-  </property>
-
-  <property>
-    <name>yarn.resourcemanager.admin.address</name>
-    <value>localhost:8033</value>
-  </property>
-
-  <!-- =========================
-       Classpath
-       ========================= -->
-  <property>
-    <description>Classpath for typical applications.</description>
-    <name>yarn.application.classpath</name>
-    <value>
-      $HADOOP_CONF_DIR,
-      $HADOOP_COMMON_HOME/*,$HADOOP_COMMON_HOME/lib/*,
-      $HADOOP_HDFS_HOME/*,$HADOOP_HDFS_HOME/lib/*,
-      $HADOOP_MAPRED_HOME/*,$HADOOP_MAPRED_HOME/lib/*,
-      $HADOOP_YARN_HOME/*,$HADOOP_YARN_HOME/lib/*
-    </value>
-  </property>
-
+ -->
 </configuration>
