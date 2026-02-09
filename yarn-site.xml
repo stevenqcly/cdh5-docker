@@ -29,11 +29,13 @@
     <value>/var/lib/hadoop-yarn/cache/yarn/nm-local-dir</value>
   </property>
 
-  <!--  Standard place NM expects to write per-app container logs -->
   <property>
-    <description>Where to store container logs.</description>
-    <name>yarn.nodemanager.log-dirs</name>
-    <value>/var/log/hadoop-yarn/userlogs</value>
+    <name>yarn.nodemanager.remote-app-log-dir</name>
+    <value>/tmp/logs</value>
+  </property>
+  <property>
+    <name>yarn.nodemanager.remote-app-log-dir-suffix</name>
+    <value>logs</value>
   </property>
 
   <!--  Where YARN aggregates logs to (your yarn logs output references this) -->

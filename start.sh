@@ -13,36 +13,25 @@ if command -v ifconfig >/dev/null 2>&1; then
 fi
 
 # ------------------------------------------------------------------------------
-# PERMANENT Spark driver fix for CDH5-in-Docker:
-# - Ensure spark-shell/pyspark read the right conf
-# - Avoid /tmp for JNI libs (snappy) & spark scratch space
-# - Optionally avoid snappy entirely by forcing lzf
+# Spark tempdir + local dirs (container-safe)
 # ------------------------------------------------------------------------------
 mkdir -p /var/tmp/java /var/tmp/spark || true
 chmod 1777 /var/tmp/java /var/tmp/spark || true
 
-# Make Spark pick up the correct defaults without users exporting SPARK_CONF_DIR
 cat >/etc/profile.d/spark_cdh5_docker.sh <<'EOF'
-# Force Spark to use the CDH config directory
 export SPARK_CONF_DIR=/etc/spark/conf
-
-# Avoid /tmp for JVM-native lib extraction (snappy) in containers
 export _JAVA_OPTIONS="-Djava.io.tmpdir=/var/tmp/java"
 export JAVA_TOOL_OPTIONS="-Djava.io.tmpdir=/var/tmp/java"
-
-# Avoid /tmp for Spark local scratch
 export SPARK_LOCAL_DIRS="/var/tmp/spark"
 EOF
 chmod 644 /etc/profile.d/spark_cdh5_docker.sh || true
 
-# Also export for THIS start.sh process (so services and non-login shells benefit)
 export SPARK_CONF_DIR=/etc/spark/conf
 export _JAVA_OPTIONS="-Djava.io.tmpdir=/var/tmp/java"
 export JAVA_TOOL_OPTIONS="-Djava.io.tmpdir=/var/tmp/java"
 export SPARK_LOCAL_DIRS="/var/tmp/spark"
 
 # Ensure Spark defaults include driver tmpdir + local dirs (+ optional codec)
-# (Idempotent: only appends if missing)
 SPARK_DEFAULTS="/etc/spark/conf/spark-defaults.conf"
 touch "$SPARK_DEFAULTS" || true
 
@@ -52,22 +41,21 @@ grep -q '^spark\.driver\.extraJavaOptions' "$SPARK_DEFAULTS" 2>/dev/null || \
 grep -q '^spark\.local\.dir' "$SPARK_DEFAULTS" 2>/dev/null || \
   echo "spark.local.dir /var/tmp/spark" >> "$SPARK_DEFAULTS"
 
-# Highly recommended in your environment: never try snappy
-# (prevents SnappyCompressionCodec from ever loading JNI)
+# Optional: avoid snappy JNI issues in old CDH containers
 grep -q '^spark\.io\.compression\.codec' "$SPARK_DEFAULTS" 2>/dev/null || \
   echo "spark.io.compression.codec lzf" >> "$SPARK_DEFAULTS"
 
-# ---------- Environment (critical in containerized CDH5) ----------
+# ---------- Environment ----------
 export JAVA_HOME="${JAVA_HOME:-/usr/java/jdk1.7.0_67}"
 export HADOOP_HOME="${HADOOP_HOME:-/usr/lib/hadoop}"
 
-# Prefer conf.pseudo (your logs show RM reads /etc/hadoop/conf.pseudo/yarn-site.xml)
+# Your RM logs show it reads conf.pseudo
 export HADOOP_CONF_DIR="${HADOOP_CONF_DIR:-/etc/hadoop/conf.pseudo}"
 export YARN_CONF_DIR="${YARN_CONF_DIR:-/etc/hadoop/conf.pseudo}"
 
 export PATH="/usr/lib/hadoop/bin:/usr/lib/hadoop/sbin:/usr/lib/hadoop-yarn/bin:/usr/lib/hadoop-yarn/sbin:/usr/lib/hadoop-mapreduce/bin:/usr/lib/hadoop-hdfs/bin:$PATH"
 
-# Yarn scripts in some CDH5 VM-to-Docker conversions look for yarn-config.sh under /usr/lib/hadoop-yarn/libexec
+# Yarn scripts in some VM->Docker conversions look for yarn-config.sh under /usr/lib/hadoop-yarn/libexec
 if [ ! -e /usr/lib/hadoop-yarn/libexec/yarn-config.sh ] && [ -e /usr/lib/hadoop/libexec/yarn-config.sh ]; then
   mkdir -p /usr/lib/hadoop-yarn/libexec
   ln -sf /usr/lib/hadoop/libexec/yarn-config.sh /usr/lib/hadoop-yarn/libexec/yarn-config.sh || true
@@ -78,21 +66,26 @@ if [ ! -e /bin/yarn ] && [ -x /usr/lib/hadoop-yarn/bin/yarn ]; then
   ln -sf /usr/lib/hadoop-yarn/bin/yarn /bin/yarn || true
 fi
 
+# Helper: start service if init script exists
+svc_start() {
+  local s="$1"
+  if [ -x "/etc/init.d/$s" ]; then
+    service "$s" start || true
+  fi
+}
+
 # ---------- Optional: SSH ----------
-if [ -x /etc/init.d/sshd ]; then
-  service sshd start || true
-fi
+svc_start sshd
 
 # ---------- Cloudera Manager (usually absent in training images) ----------
-service cloudera-scm-server start || true
-service cloudera-scm-agent start || true
+svc_start cloudera-scm-server
+svc_start cloudera-scm-agent
 
 # ---------- HDFS ----------
-service hadoop-hdfs-namenode start || true
-service hadoop-hdfs-datanode start || true
-# Alternate names sometimes present
-service hdfs-namenode start || true
-service hdfs-datanode start || true
+svc_start hadoop-hdfs-namenode
+svc_start hadoop-hdfs-datanode
+svc_start hdfs-namenode
+svc_start hdfs-datanode
 
 # ---------- HDFS dirs needed by Spark History + YARN log aggregation ----------
 echo "[start] Ensuring HDFS dirs for Spark event logs and YARN aggregated logs..."
@@ -102,45 +95,51 @@ su -s /bin/bash -c "hdfs dfs -mkdir -p /user/spark/applicationHistory >/dev/null
 su -s /bin/bash -c "hdfs dfs -chmod 1777 /user/spark/applicationHistory >/dev/null 2>&1 || true" hdfs || true
 su -s /bin/bash -c "hdfs dfs -chown -R spark:spark /user/spark >/dev/null 2>&1 || true" hdfs || true
 
-# If you enable YARN log aggregation to HDFS (/tmp/logs/logs/...)
+# YARN log aggregation directory in HDFS (yarn.nodemanager.remote-app-log-dir=/tmp/logs)
 su -s /bin/bash -c "hdfs dfs -mkdir -p /tmp/logs >/dev/null 2>&1 || true" hdfs || true
 su -s /bin/bash -c "hdfs dfs -chmod 1777 /tmp/logs >/dev/null 2>&1 || true" hdfs || true
 
-mkdir -p /var/lib/hadoop-yarn/cache/yarn/nm-local-dir /var/log/hadoop-yarn/userlogs || true
-chmod -R 1777 /var/lib/hadoop-yarn/cache/yarn/nm-local-dir /var/log/hadoop-yarn/userlogs || true
+# ---------- CRITICAL: Fix NodeManager local log dir EPERM ----------
+# Never use /var/log/... as the actual NM log dir in Docker (chmod often fails).
+mkdir -p /var/lib/hadoop-yarn/userlogs || true
+# NM runs as yarn; give it ownership and permissive mode (what NM expects)
+chown -R yarn:yarn /var/lib/hadoop-yarn/userlogs 2>/dev/null || true
+chmod 1777 /var/lib/hadoop-yarn/userlogs 2>/dev/null || true
 
+# Provide legacy path via symlink (some tools/log scrapes assume /var/log/hadoop-yarn/userlogs)
+mkdir -p /var/log/hadoop-yarn || true
+rm -rf /var/log/hadoop-yarn/userlogs 2>/dev/null || true
+ln -sf /var/lib/hadoop-yarn/userlogs /var/log/hadoop-yarn/userlogs || true
+
+# Also ensure NM local dirs exist
+mkdir -p /var/lib/hadoop-yarn/cache/yarn/nm-local-dir || true
+chown -R yarn:yarn /var/lib/hadoop-yarn/cache/yarn 2>/dev/null || true
+chmod -R 1777 /var/lib/hadoop-yarn/cache/yarn/nm-local-dir 2>/dev/null || true
 
 # ---------- YARN + MR History ----------
-# Fix common "Address already in use" / stale pidfiles BEFORE starting YARN
 rm -f /var/run/hadoop-yarn/yarn-yarn-nodemanager.pid 2>/dev/null || true
 rm -f /var/run/hadoop-yarn/yarn-yarn-resourcemanager.pid 2>/dev/null || true
 
-# Start RM/NM best-effort (init scripts often vary by image)
-service hadoop-yarn-resourcemanager start || true
-service hadoop-yarn-nodemanager start || true
-service hadoop-mapreduce-historyserver start || true
+svc_start hadoop-yarn-resourcemanager
+svc_start hadoop-yarn-nodemanager
+svc_start hadoop-mapreduce-historyserver
 
-# Alternate names sometimes present
-service yarn-resourcemanager start || true
-service yarn-nodemanager start || true
-service mapreduce-historyserver start || true
+svc_start yarn-resourcemanager
+svc_start yarn-nodemanager
+svc_start mapreduce-historyserver
 
-# ---------- Verify YARN NodeManager registration (time-bounded, non-blocking) ----------
+# ---------- Verify YARN NodeManager registration (time-bounded) ----------
 echo "[start] Verifying YARN NodeManager registration..."
 YARN_OK=0
 
-for i in $(seq 1 20); do
-  # If ResourceManager isn't running, try starting it directly
+for i in $(seq 1 25); do
   if ! pgrep -f 'org\.apache\.hadoop\.yarn\.server\.resourcemanager\.ResourceManager' >/dev/null 2>&1; then
     /usr/lib/hadoop-yarn/sbin/yarn-daemon.sh start resourcemanager >/dev/null 2>&1 || true
   fi
-
-  # If NodeManager isn't running, try starting it directly
   if ! pgrep -f 'org\.apache\.hadoop\.yarn\.server\.nodemanager\.NodeManager' >/dev/null 2>&1; then
     /usr/lib/hadoop-yarn/sbin/yarn-daemon.sh start nodemanager >/dev/null 2>&1 || true
   fi
 
-  # Don't let yarn CLI hang container boot
   if command -v timeout >/dev/null 2>&1; then
     OUT="$(timeout 3s /usr/lib/hadoop-yarn/bin/yarn node -list 2>/dev/null || true)"
     NODES="$(echo "$OUT" | awk '/Total Nodes/ {print $3}' || echo 0)"
@@ -159,9 +158,9 @@ done
 if [ "$YARN_OK" -ne 1 ]; then
   echo "[start] WARNING: YARN has 0 nodes. Some MR/Sqoop/Spark-on-YARN jobs may hang in ACCEPTED."
   echo "[start] Recent NodeManager log (if any):"
-  tail -n 80 /var/log/hadoop-yarn/yarn-yarn-nodemanager-*.log 2>/dev/null || true
+  tail -n 120 /var/log/hadoop-yarn/yarn-yarn-nodemanager-*.log 2>/dev/null || true
   echo "[start] Recent ResourceManager log (if any):"
-  tail -n 80 /var/log/hadoop-yarn/yarn-yarn-resourcemanager-*.log 2>/dev/null || true
+  tail -n 120 /var/log/hadoop-yarn/yarn-yarn-resourcemanager-*.log 2>/dev/null || true
 else
   echo "[start] YARN OK."
 fi
@@ -175,7 +174,8 @@ su -s /bin/bash -c "hdfs dfs -chown -R hive:hive /user/hive/warehouse >/dev/null
 
 # ---------- MySQL (Hue depends on it) ----------
 echo "[start] Ensuring MySQL is up for Hue..."
-service mysqld start 2>/dev/null || /etc/init.d/mysqld start 2>/dev/null || true
+svc_start mysqld
+if [ -x /etc/init.d/mysqld ]; then /etc/init.d/mysqld start 2>/dev/null || true; fi
 
 for i in $(seq 1 45); do
   [ -S /var/lib/mysql/mysql.sock ] && break
@@ -184,32 +184,31 @@ done
 
 if [ ! -S /var/lib/mysql/mysql.sock ]; then
   echo "[start] WARNING: MySQL socket not found; Hue may fail until mysqld finishes starting."
-  tail -n 40 /var/log/mysqld.log 2>/dev/null || true
+  tail -n 60 /var/log/mysqld.log 2>/dev/null || true
 fi
 
 # ---------- Hue ----------
 echo "[start] Starting Hue..."
-service hue start || true
-# If Hue didn't bind yet, try one restart
+svc_start hue
 sleep 2
 if command -v netstat >/dev/null 2>&1; then
   if ! netstat -plnt 2>/dev/null | grep -q ":8888 "; then
     echo "[start] Hue not listening on 8888 yet; retrying Hue start..."
     service hue stop >/dev/null 2>&1 || true
-    service hue start || true
+    svc_start hue
   fi
 fi
 
 # ---------- Oozie / ZK / HBase / Spark History ----------
-service zookeeper-server start || true
-service oozie start || true
-service hbase-master start || true
-service hbase-regionserver start || true
-service spark-history-server start || true
+svc_start zookeeper-server
+svc_start oozie
+svc_start hbase-master
+svc_start hbase-regionserver
+svc_start spark-history-server
 
-# ---------- Hive (time-bounded, non-blocking smoke test) ----------
+# ---------- Hive ----------
 echo "[start] Starting Hive Metastore..."
-service hive-metastore start || true
+svc_start hive-metastore
 
 echo "[start] Waiting for Hive Metastore (9083)..."
 for i in $(seq 1 45); do
@@ -220,7 +219,7 @@ for i in $(seq 1 45); do
 done
 
 echo "[start] Starting HiveServer2..."
-service hive-server2 start || true
+svc_start hive-server2
 
 echo "[start] Waiting for HiveServer2 (10000)..."
 HS2_OK=0
@@ -234,12 +233,11 @@ done
 
 if [ "$HS2_OK" -ne 1 ]; then
   echo "[start] WARNING: HiveServer2 did not come up on 10000. Recent logs:"
-  tail -n 120 /var/log/hive/hive-server2.log 2>/dev/null || true
+  tail -n 160 /var/log/hive/hive-server2.log 2>/dev/null || true
 else
   echo "[start] HiveServer2 is listening on 10000."
 fi
 
-# Optional, non-blocking smoke test (won't stall container boot)
 echo "[start] Hive smoke test (beeline select 1)..."
 if command -v timeout >/dev/null 2>&1; then
   timeout 20s beeline -u jdbc:hive2://localhost:10000/default -n training -e "select 1" >/dev/null 2>&1 || true
