@@ -68,7 +68,7 @@ service mapreduce-historyserver start || true
 echo "[start] Verifying YARN NodeManager registration..."
 YARN_OK=0
 
-for i in $(seq 1 90); do
+for i in $(seq 1 20); do
   # If ResourceManager isn't running, try starting it directly
   if ! pgrep -f 'org\.apache\.hadoop\.yarn\.server\.resourcemanager\.ResourceManager' >/dev/null 2>&1; then
     /usr/lib/hadoop-yarn/sbin/yarn-daemon.sh start resourcemanager >/dev/null 2>&1 || true
