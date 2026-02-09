@@ -94,6 +94,22 @@ service hadoop-hdfs-datanode start || true
 service hdfs-namenode start || true
 service hdfs-datanode start || true
 
+# ---------- HDFS dirs needed by Spark History + YARN log aggregation ----------
+echo "[start] Ensuring HDFS dirs for Spark event logs and YARN aggregated logs..."
+
+# Spark event log dir (history server reads this)
+su -s /bin/bash -c "hdfs dfs -mkdir -p /user/spark/applicationHistory >/dev/null 2>&1 || true" hdfs || true
+su -s /bin/bash -c "hdfs dfs -chmod 1777 /user/spark/applicationHistory >/dev/null 2>&1 || true" hdfs || true
+su -s /bin/bash -c "hdfs dfs -chown -R spark:spark /user/spark >/dev/null 2>&1 || true" hdfs || true
+
+# If you enable YARN log aggregation to HDFS (/tmp/logs/logs/...)
+su -s /bin/bash -c "hdfs dfs -mkdir -p /tmp/logs >/dev/null 2>&1 || true" hdfs || true
+su -s /bin/bash -c "hdfs dfs -chmod 1777 /tmp/logs >/dev/null 2>&1 || true" hdfs || true
+
+mkdir -p /var/lib/hadoop-yarn/cache/yarn/nm-local-dir /var/log/hadoop-yarn/userlogs || true
+chmod -R 1777 /var/lib/hadoop-yarn/cache/yarn/nm-local-dir /var/log/hadoop-yarn/userlogs || true
+
+
 # ---------- YARN + MR History ----------
 # Fix common "Address already in use" / stale pidfiles BEFORE starting YARN
 rm -f /var/run/hadoop-yarn/yarn-yarn-nodemanager.pid 2>/dev/null || true
