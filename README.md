@@ -19,38 +19,29 @@ The Docker image is published via **GitHub Container Registry (GHCR)**.
 
 ---
 
-## Quickstart (Recommended)
+## Copying + Starting the Container
 
 ```bash
-git clone https://github.com/stevenqcly/cdh5-docker.git
-cd cdh5-docker
-chmod +x run.sh
-./run.sh
-```
-
----
-
-## Manual run (if needed)
-
-```bash
-docker rm -f cdh5 2>/dev/null || true
-
+docker pull --platform linux/amd64 ghcr.io/stevenqcly/cloudera-cdh5:cdh5-v3 && \
 docker run -d \
-  --name "$NAME" \
+  --name cdh5-v3 \
   --platform linux/amd64 \
+  --add-host localhost.localdomain:127.0.0.1 \
   --privileged \
   --tmpfs /run --tmpfs /tmp \
   -p 8888:8888 \
   -p 8088:8088 \
+  -p 8042:8042 \
   -p 50070:50070 \
   -p 11000:11000 \
+  -p 19888:19888 \
   -p 18080:18080 \
   -p 60010:60010 \
   -p 60030:60030 \
   -p 2181:2181 \
   -p 10000:10000 \
   -p 10002:10002 \
-  "$IMAGE" >/dev/null
+  ghcr.io/stevenqcly/cloudera-cdh5:cdh5-v3
 ```
 
 ---
