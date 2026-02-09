@@ -5,6 +5,7 @@ RUN chmod +x /start.sh
 
 COPY spark-defaults.conf /etc/spark/conf/spark-defaults.conf
 COPY yarn-site.xml /etc/hadoop/conf.pseudo/yarn-site.xml
+COPY mapred-site.xml /etc/hadoop/conf.pseudo/mapred-site.xml
 
 
 EXPOSE \
