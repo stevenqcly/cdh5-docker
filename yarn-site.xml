@@ -2,9 +2,13 @@
 <?xml-stylesheet type="text/xsl" href="configuration.xsl"?>
 
 <configuration>
+
+  <!-- =========================
+       NodeManager aux services
+       ========================= -->
   <property>
     <name>yarn.nodemanager.aux-services</name>
-    <value>mapreduce_shuffle</value>
+    <value>mapreduce_shuffle,spark_shuffle</value>
   </property>
 
   <property>
@@ -12,17 +16,34 @@
     <value>org.apache.hadoop.mapred.ShuffleHandler</value>
   </property>
 
+  <!-- Spark-on-YARN external shuffle service (Spark 1.x on CDH5) -->
+  <property>
+    <name>yarn.nodemanager.aux-services.spark_shuffle.class</name>
+    <value>org.apache.spark.network.yarn.YarnShuffleService</value>
+  </property>
+
+  <!-- =========================
+       Log aggregation (to HDFS)
+       ========================= -->
   <property>
     <name>yarn.log-aggregation-enable</name>
     <value>true</value>
   </property>
 
+  <!-- HDFS base dir for aggregated logs -->
   <property>
-    <name>yarn.dispatcher.exit-on-error</name>
-    <value>true</value>
+    <name>yarn.nodemanager.remote-app-log-dir</name>
+    <value>/tmp/logs</value>
   </property>
 
-  <!--  Use a stable local dir (avoid ${user.name} in containers) -->
+  <property>
+    <name>yarn.nodemanager.remote-app-log-dir-suffix</name>
+    <value>logs</value>
+  </property>
+
+  <!-- =========================
+       Container-local dirs
+       ========================= -->
   <property>
     <description>List of directories to store localized files in.</description>
     <name>yarn.nodemanager.local-dirs</name>
@@ -30,21 +51,104 @@
   </property>
 
   <property>
-    <name>yarn.nodemanager.remote-app-log-dir</name>
-    <value>/tmp/logs</value>
-  </property>
-  <property>
-    <name>yarn.nodemanager.remote-app-log-dir-suffix</name>
-    <value>logs</value>
+    <description>Where to store container logs locally (NM writes here before/without aggregation).</description>
+    <name>yarn.nodemanager.log-dirs</name>
+    <value>/var/log/hadoop-yarn/userlogs</value>
   </property>
 
-  <!--  Where YARN aggregates logs to (your yarn logs output references this) -->
+  <!-- =========================
+       Safety / stability
+       ========================= -->
   <property>
-    <description>Where to aggregate logs to.</description>
-    <name>yarn.nodemanager.remote-app-log-dir</name>
-    <value>/var/log/hadoop-yarn/apps</value>
+    <name>yarn.dispatcher.exit-on-error</name>
+    <value>true</value>
   </property>
 
+  <!-- Keep the container small & predictable -->
+  <property>
+    <name>yarn.nodemanager.resource.memory-mb</name>
+    <value>4096</value>
+  </property>
+
+  <property>
+    <name>yarn.scheduler.minimum-allocation-mb</name>
+    <value>256</value>
+  </property>
+
+  <property>
+    <name>yarn.scheduler.maximum-allocation-mb</name>
+    <value>4096</value>
+  </property>
+
+  <!-- Docker / container safety: disable memory checks -->
+  <property>
+    <name>yarn.nodemanager.vmem-check-enabled</name>
+    <value>false</value>
+  </property>
+
+  <property>
+    <name>yarn.nodemanager.pmem-check-enabled</name>
+    <value>false</value>
+  </property>
+
+  <!-- =========================
+       Bind / web UI addresses
+       ========================= -->
+  <property>
+    <name>yarn.resourcemanager.bind-host</name>
+    <value>0.0.0.0</value>
+  </property>
+
+  <property>
+    <name>yarn.nodemanager.bind-host</name>
+    <value>0.0.0.0</value>
+  </property>
+
+  <property>
+    <name>yarn.resourcemanager.webapp.address</name>
+    <value>0.0.0.0:8088</value>
+  </property>
+
+  <property>
+    <name>yarn.nodemanager.webapp.address</name>
+    <value>0.0.0.0:8042</value>
+  </property>
+
+  <!-- Stable connect hostname (single-container YARN) -->
+  <property>
+    <name>yarn.resourcemanager.hostname</name>
+    <value>localhost</value>
+  </property>
+
+  <property>
+    <name>yarn.nodemanager.hostname</name>
+    <value>localhost</value>
+  </property>
+
+  <!-- Force RM RPC endpoints to a stable connect address -->
+  <property>
+    <name>yarn.resourcemanager.address</name>
+    <value>localhost:8032</value>
+  </property>
+
+  <property>
+    <name>yarn.resourcemanager.scheduler.address</name>
+    <value>localhost:8030</value>
+  </property>
+
+  <property>
+    <name>yarn.resourcemanager.resource-tracker.address</name>
+    <value>localhost:8031</value>
+  </property>
+
+  <property>
+    <name>yarn.resourcemanager.admin.address</name>
+    <value>localhost:8033</value>
+  </property>
+
+  <!-- =========================
+       Classpath
+       ========================= -->
   <property>
     <description>Classpath for typical applications.</description>
     <name>yarn.application.classpath</name>
@@ -57,91 +161,4 @@
     </value>
   </property>
 
-  <!--  Keep the container small & predictable -->
-  <property>
-    <name>yarn.nodemanager.resource.memory-mb</name>
-    <value>4096</value>
-  </property>
-
-  <property>
-    <name>yarn.scheduler.minimum-allocation-mb</name>
-    <value>256</value>
-  </property>
-
-  <!--  Make max match NM memory to avoid odd scheduling limits -->
-  <property>
-    <name>yarn.scheduler.maximum-allocation-mb</name>
-    <value>4096</value>
-  </property>
-
-  <!--  Docker / container safety: disable memory checks -->
-  <property>
-    <name>yarn.nodemanager.vmem-check-enabled</name>
-    <value>false</value>
-  </property>
-
-  <property>
-    <name>yarn.nodemanager.pmem-check-enabled</name>
-    <value>false</value>
-  </property>
-
-  <!--  Bind to all interfaces inside the container -->
-  <property>
-    <name>yarn.resourcemanager.bind-host</name>
-    <value>0.0.0.0</value>
-  </property>
-  <property>
-    <name>yarn.nodemanager.bind-host</name>
-    <value>0.0.0.0</value>
-  </property>
-
-  <!--  Web UIs bind to all interfaces for Docker port mapping -->
-  <property>
-    <name>yarn.resourcemanager.webapp.address</name>
-    <value>0.0.0.0:8088</value>
-  </property>
-  <property>
-    <name>yarn.nodemanager.webapp.address</name>
-    <value>0.0.0.0:8042</value>
-  </property>
-
-  <!--  Stable connect hostname (works regardless of random container hostname) -->
-  <property>
-    <name>yarn.resourcemanager.hostname</name>
-    <value>localhost</value>
-  </property>
-
-  <!-- Advertise a stable hostname for a single-container YARN -->
-  <property>
-    <name>yarn.nodemanager.hostname</name>
-    <value>localhost</value>
-  </property>
-
-  <!-- Force RM RPC endpoints to a stable connect address -->
-  <property>
-    <name>yarn.resourcemanager.address</name>
-    <value>localhost:8032</value>
-  </property>
-  <property>
-    <name>yarn.resourcemanager.scheduler.address</name>
-    <value>localhost:8030</value>
-  </property>
-  <property>
-    <name>yarn.resourcemanager.resource-tracker.address</name>
-    <value>localhost:8031</value>
-  </property>
-  <property>
-    <name>yarn.resourcemanager.admin.address</name>
-    <value>localhost:8033</value>
-  </property>
-
-  <!-- Optional but recommended: make `yarn logs` work via HDFS log aggregation -->
-  <property>
-    <name>yarn.nodemanager.remote-app-log-dir</name>
-    <value>/tmp/logs</value>
-  </property>
-  <property>
-    <name>yarn.nodemanager.remote-app-log-dir-suffix</name>
-    <value>logs</value>
-  </property>
 </configuration>
