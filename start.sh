@@ -15,8 +15,11 @@ fi
 # ---------- Environment (critical in containerized CDH5) ----------
 export JAVA_HOME="${JAVA_HOME:-/usr/java/jdk1.7.0_67}"
 export HADOOP_HOME="${HADOOP_HOME:-/usr/lib/hadoop}"
-export HADOOP_CONF_DIR="${HADOOP_CONF_DIR:-/etc/hadoop/conf}"
-export YARN_CONF_DIR="${YARN_CONF_DIR:-/etc/hadoop/conf}"
+
+# Prefer conf.pseudo (your logs show RM reads /etc/hadoop/conf.pseudo/yarn-site.xml)
+export HADOOP_CONF_DIR="${HADOOP_CONF_DIR:-/etc/hadoop/conf.pseudo}"
+export YARN_CONF_DIR="${YARN_CONF_DIR:-/etc/hadoop/conf.pseudo}"
+
 export PATH="/usr/lib/hadoop/bin:/usr/lib/hadoop/sbin:/usr/lib/hadoop-yarn/bin:/usr/lib/hadoop-yarn/sbin:/usr/lib/hadoop-mapreduce/bin:/usr/lib/hadoop-hdfs/bin:$PATH"
 
 # Yarn scripts in some CDH5 VM-to-Docker conversions look for yarn-config.sh under /usr/lib/hadoop-yarn/libexec
@@ -47,7 +50,11 @@ service hdfs-namenode start || true
 service hdfs-datanode start || true
 
 # ---------- YARN + MR History ----------
-# Start RM/NM best-effort (init scripts often lie; we validate later)
+# Fix common "Address already in use" / stale pidfiles BEFORE starting YARN
+rm -f /var/run/hadoop-yarn/yarn-yarn-nodemanager.pid 2>/dev/null || true
+rm -f /var/run/hadoop-yarn/yarn-yarn-resourcemanager.pid 2>/dev/null || true
+
+# Start RM/NM best-effort (init scripts often vary by image)
 service hadoop-yarn-resourcemanager start || true
 service hadoop-yarn-nodemanager start || true
 service hadoop-mapreduce-historyserver start || true
@@ -57,33 +64,32 @@ service yarn-resourcemanager start || true
 service yarn-nodemanager start || true
 service mapreduce-historyserver start || true
 
-# ---------- Fix common "Address already in use" from stale pids ----------
-# If dev1 or prior runs left stale pid files, the service wrapper can behave oddly.
-# This won't kill healthy daemons; it only removes stale pidfiles.
-rm -f /var/run/hadoop-yarn/yarn-yarn-nodemanager.pid 2>/dev/null || true
-rm -f /var/run/hadoop-yarn/yarn-yarn-resourcemanager.pid 2>/dev/null || true
-
-# ---------- Verify YARN NodeManager registration (time-bounded) ----------
+# ---------- Verify YARN NodeManager registration (time-bounded, non-blocking) ----------
 echo "[start] Verifying YARN NodeManager registration..."
 YARN_OK=0
+
 for i in $(seq 1 90); do
-  # yarn CLI should work if env is correct
-  if /usr/lib/hadoop-yarn/bin/yarn node -list >/dev/null 2>&1; then
-    NODES=$(/usr/lib/hadoop-yarn/bin/yarn node -list 2>/dev/null | awk '/Total Nodes/ {print $3}' || echo 0)
-    if [ "${NODES:-0}" != "0" ]; then
-      YARN_OK=1
-      break
-    fi
+  # If ResourceManager isn't running, try starting it directly
+  if ! pgrep -f 'org\.apache\.hadoop\.yarn\.server\.resourcemanager\.ResourceManager' >/dev/null 2>&1; then
+    /usr/lib/hadoop-yarn/sbin/yarn-daemon.sh start resourcemanager >/dev/null 2>&1 || true
   fi
 
-  # if NodeManager isn't running, try starting it via yarn-daemon directly
+  # If NodeManager isn't running, try starting it directly
   if ! pgrep -f 'org\.apache\.hadoop\.yarn\.server\.nodemanager\.NodeManager' >/dev/null 2>&1; then
     /usr/lib/hadoop-yarn/sbin/yarn-daemon.sh start nodemanager >/dev/null 2>&1 || true
   fi
 
-  # if ResourceManager isn't running, try starting it directly
-  if ! pgrep -f 'org\.apache\.hadoop\.yarn\.server\.resourcemanager\.ResourceManager' >/dev/null 2>&1; then
-    /usr/lib/hadoop-yarn/sbin/yarn-daemon.sh start resourcemanager >/dev/null 2>&1 || true
+  # Don't let yarn CLI hang container boot
+  if command -v timeout >/dev/null 2>&1; then
+    OUT="$(timeout 3s /usr/lib/hadoop-yarn/bin/yarn node -list 2>/dev/null || true)"
+    NODES="$(echo "$OUT" | awk '/Total Nodes/ {print $3}' || echo 0)"
+  else
+    NODES=0
+  fi
+
+  if [ "${NODES:-0}" != "0" ]; then
+    YARN_OK=1
+    break
   fi
 
   sleep 1
@@ -100,7 +106,6 @@ else
 fi
 
 # ---------- HDFS dirs needed by Hive/Spark ----------
-# Make these best-effort; some environments start slow.
 echo "[start] Ensuring HDFS temp/warehouse dirs..."
 su -s /bin/bash -c "hdfs dfs -mkdir -p /tmp /user/hive/warehouse >/dev/null 2>&1 || true" hdfs || true
 su -s /bin/bash -c "hdfs dfs -chmod -R 1777 /tmp >/dev/null 2>&1 || true" hdfs || true
