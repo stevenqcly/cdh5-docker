@@ -19,7 +19,18 @@ The Docker image is published via **GitHub Container Registry (GHCR)**.
 
 ---
 
-## Copying + Starting the Container
+## QUICKSTART - Run the below in the Mac terminal (Create and run the container with one simple command)
+
+```bash
+git clone https://github.com/stevenqcly/cdh5-docker.git
+cd cdh5-docker
+chmod +x run.sh
+./run.sh
+```
+
+---
+
+## Copying + Starting the Container (manual run if the quickstart is not working.
 
 ```bash
 docker pull --platform linux/amd64 ghcr.io/stevenqcly/cloudera-cdh5:cdh5-v3 && \
